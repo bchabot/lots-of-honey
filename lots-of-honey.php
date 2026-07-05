@@ -135,3 +135,29 @@ function run_lots_of_honey() {
 	return Lots_Of_Honey::get_instance();
 }
 run_lots_of_honey();
+
+/**
+ * Register custom WP-CLI commands for secure firewall integration
+ */
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	class LOH_CLI_Command {
+		/**
+		 * Prints the active permanent banlist (one IP or CIDR per line).
+		 *
+		 * ## EXAMPLES
+		 *
+		 *     wp lots-of-honey banlist
+		 */
+		public function banlist( $args, $assoc_args ) {
+			$is_network = is_multisite();
+			$ban_list = $is_network ? get_site_option( 'loh_ban_list', array() ) : get_option( 'loh_ban_list', array() );
+			if ( ! is_array( $ban_list ) ) {
+				$ban_list = array();
+			}
+			foreach ( $ban_list as $ip_or_cidr => $time ) {
+				WP_CLI::line( $ip_or_cidr );
+			}
+		}
+	}
+	WP_CLI::add_command( 'lots-of-honey', 'LOH_CLI_Command' );
+}

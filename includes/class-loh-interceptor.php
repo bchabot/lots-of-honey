@@ -44,7 +44,24 @@ class LOH_Interceptor {
 			$ban_list = array();
 		}
 
+		$is_banned = false;
+
+		// 1. Exact match check
 		if ( isset( $ban_list[ $ip ] ) ) {
+			$is_banned = true;
+		} else {
+			// 2. CIDR range check (if the banned key is a subnet block like 10.0.0.0/24)
+			foreach ( $ban_list as $banned_item => $timestamp ) {
+				if ( strpos( $banned_item, '/' ) !== false ) {
+					if ( $this->ip_in_cidr( $ip, $banned_item ) ) {
+						$is_banned = true;
+						break;
+					}
+				}
+			}
+		}
+
+		if ( $is_banned ) {
 			status_header( 403 );
 			header( 'Content-Type: text/html; charset=utf-8' );
 			?>
