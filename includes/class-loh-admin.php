@@ -134,12 +134,17 @@ class LOH_Admin {
 				<a href="?page=lots-of-honey-network&tab=settings" class="nav-tab <?php echo 'settings' === $current_tab ? 'nav-tab-active' : ''; ?>">
 					<span class="dashicons dashicons-admin-settings"></span> <?php esc_html_e( 'Network Settings', 'lots-of-honey' ); ?>
 				</a>
+				<a href="?page=lots-of-honey-network&tab=banlist" class="nav-tab <?php echo 'banlist' === $current_tab ? 'nav-tab-active' : ''; ?>">
+					<span class="dashicons dashicons-dismiss"></span> <?php esc_html_e( 'IP Banlist', 'lots-of-honey' ); ?>
+				</a>
 			</h2>
 
 			<div class="loh-content">
 				<?php
 				if ( 'settings' === $current_tab ) {
 					$this->render_network_settings_tab();
+				} elseif ( 'banlist' === $current_tab ) {
+					$this->render_network_banlist_tab();
 				} else {
 					$this->render_logs_tab( null ); // Show all logs for the network
 				}
@@ -214,6 +219,36 @@ class LOH_Admin {
 	 * Handle settings saving & actions in Network Admin
 	 */
 	private function handle_network_actions() {
+		// Handle Banlist Export (GET Action)
+		if ( isset( $_GET['action'] ) && 'export_banlist' === $_GET['action'] ) {
+			if ( ! current_user_can( 'manage_network_options' ) ) {
+				wp_die( __( 'Unauthorized action.', 'lots-of-honey' ) );
+			}
+			$ban_list = get_site_option( 'loh_ban_list', array() );
+			if ( ! is_array( $ban_list ) ) {
+				$ban_list = array();
+			}
+			header( 'Content-Type: text/plain; charset=utf-8' );
+			header( 'Content-Disposition: attachment; filename="banned-ips.txt"' );
+			foreach ( $ban_list as $ip => $timestamp ) {
+				echo esc_html( $ip ) . "\r\n";
+			}
+			exit;
+		}
+
+		// Handle Remove IP from Banlist (GET Action)
+		if ( isset( $_GET['action'] ) && 'unban_ip' === $_GET['action'] && isset( $_GET['ip'] ) ) {
+			if ( ! current_user_can( 'manage_network_options' ) ) {
+				wp_die( __( 'Unauthorized action.', 'lots-of-honey' ) );
+			}
+			if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( $_GET['_wpnonce'], 'loh_unban_ip_nonce' ) ) {
+				wp_die( __( 'Security check failed.', 'lots-of-honey' ) );
+			}
+			$ip = sanitize_text_field( $_GET['ip'] );
+			LOH_Interceptor::get_instance()->remove_ip_from_banlist( $ip );
+			echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( esc_html__( 'IP address %s removed from the banlist.', 'lots-of-honey' ), esc_html( $ip ) ) . '</p></div>';
+		}
+
 		if ( ! isset( $_POST['loh_network_nonce_field'] ) ) {
 			return;
 		}
@@ -233,6 +268,13 @@ class LOH_Admin {
 			return;
 		}
 
+		// Handle Add IP to Banlist (POST Action)
+		if ( isset( $_POST['loh_add_ban_ip'] ) && ! empty( $_POST['loh_ban_ip_address'] ) ) {
+			$ip = sanitize_text_field( $_POST['loh_ban_ip_address'] );
+			LOH_Interceptor::get_instance()->add_ip_to_banlist( $ip );
+			echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( esc_html__( 'IP address %s added to the banlist.', 'lots-of-honey' ), esc_html( $ip ) ) . '</p></div>';
+		}
+
 		// Save Settings
 		if ( isset( $_POST['loh_save_network_settings'] ) ) {
 			$enabled = isset( $_POST['loh_enabled'] ) ? '1' : '0';
@@ -240,12 +282,14 @@ class LOH_Admin {
 			$delay = isset( $_POST['loh_tarpit_delay'] ) ? absint( $_POST['loh_tarpit_delay'] ) : 10;
 			$whitelist = isset( $_POST['loh_ip_whitelist'] ) ? sanitize_textarea_field( wp_unslash( $_POST['loh_ip_whitelist'] ) ) : '';
 			$honeypot_sites = isset( $_POST['loh_honeypot_sites'] ) ? array_map( 'absint', $_POST['loh_honeypot_sites'] ) : array();
+			$probe_patterns = isset( $_POST['loh_probe_patterns'] ) ? sanitize_textarea_field( wp_unslash( $_POST['loh_probe_patterns'] ) ) : '';
 
 			update_site_option( 'loh_enabled', $enabled );
 			update_site_option( 'loh_mode', $mode );
 			update_site_option( 'loh_tarpit_delay', $delay );
 			update_site_option( 'loh_ip_whitelist', $whitelist );
 			update_site_option( 'loh_honeypot_sites', $honeypot_sites );
+			update_site_option( 'loh_probe_patterns', $probe_patterns );
 
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Network settings saved.', 'lots-of-honey' ) . '</p></div>';
 		}
@@ -362,6 +406,20 @@ class LOH_Admin {
 			</div>
 
 			<div class="loh-card">
+				<h3><?php esc_html_e( 'Vulnerability Probe Patterns', 'lots-of-honey' ); ?></h3>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="loh_probe_patterns"><?php esc_html_e( 'Probe URL Patterns', 'lots-of-honey' ); ?></label></th>
+						<td>
+							<?php $probe_patterns = get_site_option( 'loh_probe_patterns', "wp-config.php\n.env\nxmlrpc.php\nphpmyadmin\nsetup.cgi\n.git\n/etc/passwd" ); ?>
+							<textarea name="loh_probe_patterns" id="loh_probe_patterns" rows="5" cols="50" class="large-text code"><?php echo esc_textarea( $probe_patterns ); ?></textarea>
+							<p class="description"><?php esc_html_e( 'Enter request path patterns or substrings to block and permanently ban network-wide (one per line). If anyone hits these paths on any honeypot site, they are added to the banlist.', 'lots-of-honey' ); ?></p>
+						</td>
+					</tr>
+				</table>
+			</div>
+
+			<div class="loh-card">
 				<h3><?php esc_html_e( 'Designate Honeypot Sites', 'lots-of-honey' ); ?></h3>
 				<p class="description"><?php esc_html_e( 'Select the sites on the network that should act as honeypots. WARNING: Once designated, regular visitors to these sites will be blocked/redirected.', 'lots-of-honey' ); ?></p>
 				<table class="wp-list-table widefat fixed striped" style="margin-top: 15px;">
@@ -409,6 +467,77 @@ class LOH_Admin {
 				<input type="submit" name="loh_save_network_settings" id="submit" class="button button-primary button-large" value="<?php esc_attr_e( 'Save Network Settings', 'lots-of-honey' ); ?>">
 			</p>
 		</form>
+		<?php
+	}
+
+	/**
+	 * Render network banlist management page
+	 */
+	private function render_network_banlist_tab() {
+		$ban_list = get_site_option( 'loh_ban_list', array() );
+		if ( ! is_array( $ban_list ) ) {
+			$ban_list = array();
+		}
+		?>
+		<div class="loh-card">
+			<h3><?php esc_html_e( 'Manually Ban an IP Address', 'lots-of-honey' ); ?></h3>
+			<p class="description"><?php esc_html_e( 'Manually add an IP address to the network-wide permanent block list.', 'lots-of-honey' ); ?></p>
+			<form method="post" action="" style="margin-top: 15px; display: flex; gap: 10px; align-items: center;">
+				<?php wp_nonce_field( 'loh_network_settings_save', 'loh_network_nonce_field' ); ?>
+				<input type="text" name="loh_ban_ip_address" class="regular-text code" placeholder="e.g. 192.168.1.100" required style="margin: 0; padding: 6px 10px;">
+				<input type="submit" name="loh_add_ban_ip" class="button button-primary" value="<?php esc_attr_e( 'Add to Banlist', 'lots-of-honey' ); ?>" style="margin: 0;">
+			</form>
+		</div>
+
+		<div class="loh-card">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+				<h3 style="margin: 0;"><?php esc_html_e( 'Network-Wide Banned IPs', 'lots-of-honey' ); ?></h3>
+				<a href="?page=lots-of-honey-network&action=export_banlist" class="button button-secondary">
+					<span class="dashicons dashicons-download" style="vertical-align: text-bottom; margin-top: 3px;"></span> <?php esc_html_e( 'Export Banlist (.txt)', 'lots-of-honey' ); ?>
+				</a>
+			</div>
+
+			<table class="wp-list-table widefat fixed striped">
+				<thead>
+					<tr>
+						<th scope="col"><?php esc_html_e( 'IP Address', 'lots-of-honey' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'Date & Time Banned', 'lots-of-honey' ); ?></th>
+						<th scope="col" style="width: 10em;"><?php esc_html_e( 'Actions', 'lots-of-honey' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php if ( ! empty( $ban_list ) ) : ?>
+						<?php foreach ( $ban_list as $ip => $timestamp ) : ?>
+							<?php
+							$unban_url = wp_nonce_url(
+								add_query_arg(
+									array(
+										'action' => 'unban_ip',
+										'ip'     => $ip,
+									),
+									'?page=lots-of-honey-network&tab=banlist'
+								),
+								'loh_unban_ip_nonce'
+							);
+							?>
+							<tr>
+								<td><strong><code><?php echo esc_html( $ip ); ?></code></strong></td>
+								<td><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp ) ); ?></td>
+								<td>
+									<a href="<?php echo esc_url( $unban_url ); ?>" class="button button-link delete" style="color: #dc3545; text-decoration: none;">
+										<span class="dashicons dashicons-dismiss" style="vertical-align: text-bottom; margin-top: 3px;"></span> <?php esc_html_e( 'Unban IP', 'lots-of-honey' ); ?>
+									</a>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					<?php else : ?>
+						<tr>
+							<td colspan="3"><?php esc_html_e( 'No IP addresses are currently banned.', 'lots-of-honey' ); ?></td>
+						</tr>
+					<?php endif; ?>
+				</tbody>
+			</table>
+		</div>
 		<?php
 	}
 

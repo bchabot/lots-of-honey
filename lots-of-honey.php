@@ -92,6 +92,7 @@ class Lots_Of_Honey {
 		$interceptor_run = true;
 
 		$interceptor = LOH_Interceptor::get_instance();
+		$interceptor->maybe_block_banned_ip();
 		$interceptor->maybe_intercept();
 	}
 

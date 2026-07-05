@@ -27,6 +27,8 @@ class LOH_Activator {
 			'loh_tarpit_delay'   => 10,
 			'loh_ip_whitelist'   => '',
 			'loh_honeypot_sites' => array(),
+			'loh_ban_list'       => array(),
+			'loh_probe_patterns' => "wp-config.php\n.env\nxmlrpc.php\nphpmyadmin\nsetup.cgi\n.git\n/etc/passwd",
 		);
 
 		if ( is_multisite() && $network_wide ) {

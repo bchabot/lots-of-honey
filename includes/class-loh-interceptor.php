@@ -34,6 +34,163 @@ class LOH_Interceptor {
 	private function __construct() {}
 
 	/**
+	 * Check if the visitor IP is in the permanent ban list and reject if so
+	 */
+	public function maybe_block_banned_ip() {
+		$ip = $this->get_client_ip();
+		$is_network = is_multisite();
+		$ban_list = $is_network ? get_site_option( 'loh_ban_list', array() ) : get_option( 'loh_ban_list', array() );
+		if ( ! is_array( $ban_list ) ) {
+			$ban_list = array();
+		}
+
+		if ( isset( $ban_list[ $ip ] ) ) {
+			status_header( 403 );
+			header( 'Content-Type: text/html; charset=utf-8' );
+			?>
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<title>403 Forbidden</title>
+				<style>
+					body { background-color: #f7f9fa; color: #333; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif; text-align: center; padding: 15% 5% 5% 5%; }
+					h1 { font-size: 50px; margin: 0; color: #dc3545; }
+					p { font-size: 18px; color: #6c757d; }
+					hr { max-width: 50px; border: 1px solid #dee2e6; margin: 20px auto; }
+				</style>
+			</head>
+			<body>
+				<h1>403 Forbidden</h1>
+				<hr>
+				<p>Access to this server has been blocked by security policy.</p>
+			</body>
+			</html>
+			<?php
+			exit;
+		}
+	}
+
+	/**
+	 * Add an IP address to the network or single-site banlist
+	 *
+	 * @param string $ip IP address to ban.
+	 */
+	public function add_ip_to_banlist( $ip ) {
+		if ( empty( $ip ) ) {
+			return;
+		}
+
+		$is_network = is_multisite();
+		$ban_list = $is_network ? get_site_option( 'loh_ban_list', array() ) : get_option( 'loh_ban_list', array() );
+		if ( ! is_array( $ban_list ) ) {
+			$ban_list = array();
+		}
+
+		if ( ! isset( $ban_list[ $ip ] ) ) {
+			$ban_list[ $ip ] = time();
+			if ( $is_network ) {
+				update_site_option( 'loh_ban_list', $ban_list );
+			} else {
+				update_option( 'loh_ban_list', $ban_list );
+			}
+		}
+	}
+
+	/**
+	 * Remove an IP address from the network or single-site banlist
+	 *
+	 * @param string $ip IP address to unban.
+	 */
+	public function remove_ip_from_banlist( $ip ) {
+		if ( empty( $ip ) ) {
+			return;
+		}
+
+		$is_network = is_multisite();
+		$ban_list = $is_network ? get_site_option( 'loh_ban_list', array() ) : get_option( 'loh_ban_list', array() );
+		if ( ! is_array( $ban_list ) ) {
+			$ban_list = array();
+		}
+
+		if ( isset( $ban_list[ $ip ] ) ) {
+			unset( $ban_list[ $ip ] );
+			if ( $is_network ) {
+				update_site_option( 'loh_ban_list', $ban_list );
+			} else {
+				update_option( 'loh_ban_list', $ban_list );
+			}
+		}
+	}
+
+	/**
+	 * Verify if HTTP Referer is from a valid network site's admin area
+	 *
+	 * @return bool
+	 */
+	public function is_valid_network_admin_referrer() {
+		if ( empty( $_SERVER['HTTP_REFERER'] ) ) {
+			return false;
+		}
+
+		$referer = $_SERVER['HTTP_REFERER'];
+		$parsed_referer = wp_parse_url( $referer );
+
+		if ( empty( $parsed_referer['host'] ) || empty( $parsed_referer['path'] ) ) {
+			return false;
+		}
+
+		// Must come from wp-admin area
+		if ( strpos( $parsed_referer['path'], '/wp-admin/' ) === false ) {
+			return false;
+		}
+
+		// Match host against networked sites
+		if ( is_multisite() ) {
+			$sites = get_sites( array( 'fields' => 'ids', 'number' => 500 ) );
+			foreach ( $sites as $site_id ) {
+				$site_url = get_home_url( $site_id );
+				$parsed_site = wp_parse_url( $site_url );
+				if ( ! empty( $parsed_site['host'] ) && strcasecmp( $parsed_site['host'], $parsed_referer['host'] ) === 0 ) {
+					return true;
+				}
+			}
+		} else {
+			$site_url = get_home_url();
+			$parsed_site = wp_parse_url( $site_url );
+			if ( ! empty( $parsed_site['host'] ) && strcasecmp( $parsed_site['host'], $parsed_referer['host'] ) === 0 ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Match URI against vulnerability probe patterns (case-insensitive substring check)
+	 *
+	 * @param string $uri             Request URI.
+	 * @param string $patterns_string Configured patterns.
+	 * @return bool
+	 */
+	public function matches_probe_patterns( $uri, $patterns_string ) {
+		if ( empty( $patterns_string ) ) {
+			return false;
+		}
+
+		$patterns = array_map( 'trim', explode( "\n", str_replace( "\r", '', $patterns_string ) ) );
+		foreach ( $patterns as $pattern ) {
+			if ( empty( $pattern ) ) {
+				continue;
+			}
+			if ( stripos( $uri, $pattern ) !== false ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Intercept the request if the current site is a honeypot
 	 */
 	public function maybe_intercept() {
@@ -56,6 +213,35 @@ class LOH_Interceptor {
 		// Allow super admins or admins with manage_options capability to access the dashboard
 		if ( is_user_logged_in() && ( is_super_admin() || current_user_can( 'manage_options' ) ) ) {
 			return;
+		}
+
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '';
+
+		// 1. Check if hitting wp-login.php without a valid network admin referrer
+		if ( strpos( $uri, 'wp-login.php' ) !== false ) {
+			if ( ! $this->is_valid_network_admin_referrer() ) {
+				$this->add_ip_to_banlist( $ip );
+
+				// Log attempt and permanent ban
+				$method = isset( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+				$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : '';
+				LOH_Database::insert_log( $ip, $method, $uri, $user_agent, array(), array(), 'banned (invalid login referrer)' );
+
+				$this->serve_blocked_page();
+			}
+		}
+
+		// 2. Check if matching configured vulnerability probe patterns
+		$patterns = isset( $options['loh_probe_patterns'] ) ? $options['loh_probe_patterns'] : '';
+		if ( $this->matches_probe_patterns( $uri, $patterns ) ) {
+			$this->add_ip_to_banlist( $ip );
+
+			// Log attempt and permanent ban
+			$method = isset( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+			$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : '';
+			LOH_Database::insert_log( $ip, $method, $uri, $user_agent, array(), array(), 'banned (vulnerability probe)' );
+
+			$this->serve_blocked_page();
 		}
 
 		// Perform honeypot action
@@ -99,10 +285,11 @@ class LOH_Interceptor {
 	 */
 	private function get_options() {
 		$keys = array(
-			'loh_enabled'      => '1',
-			'loh_mode'         => 'tarpit',
-			'loh_tarpit_delay' => 10,
-			'loh_ip_whitelist' => '',
+			'loh_enabled'        => '1',
+			'loh_mode'           => 'tarpit',
+			'loh_tarpit_delay'   => 10,
+			'loh_ip_whitelist'   => '',
+			'loh_probe_patterns' => "wp-config.php\n.env\nxmlrpc.php\nphpmyadmin\nsetup.cgi\n.git\n/etc/passwd",
 		);
 
 		$options = array();
