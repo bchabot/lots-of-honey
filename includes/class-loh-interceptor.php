@@ -277,7 +277,7 @@ class LOH_Interceptor {
 
 		// In Multisite, check if network activated
 		$active_sitewide = get_site_option( 'active_sitewide_plugins' );
-		$is_network_active = isset( $active_sitewide['lots-of-honey/lots-of-honey.php'] );
+		$is_network_active = isset( $active_sitewide[ defined( 'LOH_PLUGIN_BASENAME' ) ? LOH_PLUGIN_BASENAME : 'lots-of-honey/lots-of-honey.php' ] );
 
 		if ( $is_network_active ) {
 			$enabled = '1' === get_site_option( 'loh_enabled', '1' );
@@ -314,7 +314,7 @@ class LOH_Interceptor {
 
 		if ( is_multisite() ) {
 			$active_sitewide = get_site_option( 'active_sitewide_plugins' );
-			$is_network_active = isset( $active_sitewide['lots-of-honey/lots-of-honey.php'] );
+			$is_network_active = isset( $active_sitewide[ defined( 'LOH_PLUGIN_BASENAME' ) ? LOH_PLUGIN_BASENAME : 'lots-of-honey/lots-of-honey.php' ] );
 		}
 
 		foreach ( $keys as $key => $default ) {

@@ -58,7 +58,7 @@ class LOH_Admin {
 			return false;
 		}
 		$active_sitewide = get_site_option( 'active_sitewide_plugins' );
-		return isset( $active_sitewide['lots-of-honey/lots-of-honey.php'] );
+		return isset( $active_sitewide[ defined( 'LOH_PLUGIN_BASENAME' ) ? LOH_PLUGIN_BASENAME : 'lots-of-honey/lots-of-honey.php' ] );
 	}
 
 	/**
@@ -440,7 +440,7 @@ class LOH_Admin {
 								?>
 								<tr>
 									<th scope="row" class="check-column">
-										<input type="checkbox" name="loh_honeypot_sites[]" value="<?php echo esc_attr( $site->blog_id ); ?>" <?php checked( in_array( $site->blog_id, $honeypot_sites, true ), true ); ?> <?php disabled( $is_main ); ?>>
+										<input type="checkbox" name="loh_honeypot_sites[]" value="<?php echo esc_attr( $site->blog_id ); ?>" <?php checked( in_array( (int) $site->blog_id, $honeypot_sites, true ), true ); ?> <?php disabled( $is_main ); ?>>
 									</th>
 									<td>
 										<strong><?php echo esc_html( $details->blogname ); ?></strong>
