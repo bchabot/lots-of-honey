@@ -538,6 +538,27 @@ class LOH_Admin {
 				</tbody>
 			</table>
 		</div>
+
+		<div class="loh-card">
+			<h3><?php esc_html_e( 'Firewall Synchronization Setup (No WP-CLI Required)', 'lots-of-honey' ); ?></h3>
+			<p class="description"><?php esc_html_e( 'To block banned IPs at the server level (UFW, iptables, firewalld, or hosts.deny) and protect the entire network with zero overhead, set up a host-level cron job using our included secure script.', 'lots-of-honey' ); ?></p>
+			
+			<div style="margin-top: 15px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 6px;">
+				<h4 style="margin: 0 0 10px 0; font-weight: bold;"><?php esc_html_e( '1. Copy the script to your server:', 'lots-of-honey' ); ?></h4>
+				<pre class="code-block" style="margin-bottom: 20px;"><code>sudo cp <?php echo esc_html( LOH_PLUGIN_DIR . 'bin/sync-honey-banlist.sh' ); ?> /usr/local/bin/sync-honey-banlist.sh
+sudo chmod +x /usr/local/bin/sync-honey-banlist.sh</code></pre>
+				
+				<h4 style="margin: 0 0 10px 0; font-weight: bold;"><?php esc_html_e( '2. Configure the script variables:', 'lots-of-honey' ); ?></h4>
+				<p class="description" style="margin-bottom: 10px;"><?php esc_html_e( 'Open the script in your editor and customize the variables:', 'lots-of-honey' ); ?></p>
+				<pre class="code-block" style="margin-bottom: 20px;"><code>WP_PATH="<?php echo esc_html( ABSPATH ); ?>"
+WP_USER="www-data"  # (Or your web server user, e.g. nginx, apache)
+FIREWALL_TYPE="ufw" # (Options: ufw, iptables, firewalld, hosts.deny)</code></pre>
+				
+				<h4 style="margin: 0 0 10px 0; font-weight: bold;"><?php esc_html_e( '3. Add a root cron job:', 'lots-of-honey' ); ?></h4>
+				<p class="description" style="margin-bottom: 10px;"><?php esc_html_e( 'Run `sudo crontab -e` and append the following line to run the sync every minute:', 'lots-of-honey' ); ?></p>
+				<pre class="code-block" style="margin-bottom: 5px;"><code>* * * * * /usr/local/bin/sync-honey-banlist.sh >/dev/null 2>&1</code></pre>
+			</div>
+		</div>
 		<?php
 	}
 

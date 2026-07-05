@@ -4,7 +4,7 @@
 #
 # Description:
 #   This script runs locally as root on the host OS. It fetches the network-wide 
-#   honeypot IP banlist securely from WordPress via WP-CLI, sanitizes the inputs 
+#   honeypot IP banlist securely from WordPress via standard PHP, sanitizes the inputs 
 #   rigorously, and applies them to your choice of system firewall (UFW, iptables,
 #   firewalld, or /etc/hosts.deny) without giving the web server elevated access.
 #
@@ -31,9 +31,10 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Fetch the raw banlist using WP-CLI as the web server user
-if ! RAW_BANS=$(sudo -u "$WP_USER" wp lots-of-honey banlist --path="$WP_PATH" 2>/dev/null); then
-    echo "ERROR: Failed to fetch banlist via WP-CLI. Please verify your WP_PATH and WP_USER." >&2
+# Fetch the raw banlist using standard PHP to bootstrap WordPress (no WP-CLI dependency)
+# Runs as the web server user for absolute safety.
+if ! RAW_BANS=$(sudo -u "$WP_USER" php -r "define('WP_USE_THEMES', false); require '$WP_PATH/wp-load.php'; \$ban_list = is_multisite() ? get_site_option('loh_ban_list', array()) : get_option('loh_ban_list', array()); if (is_array(\$ban_list)) { foreach(array_keys(\$ban_list) as \$item) { echo \$item . PHP_EOL; } }" 2>/dev/null); then
+    echo "ERROR: Failed to fetch banlist via PHP bootstrap. Please verify your WP_PATH, WP_USER, and that PHP CLI is installed." >&2
     exit 1
 fi
 
