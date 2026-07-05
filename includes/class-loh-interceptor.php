@@ -248,9 +248,29 @@ class LOH_Interceptor {
 			}
 		}
 
-		// 2. Check if matching configured vulnerability probe patterns
-		$patterns = isset( $options['loh_probe_patterns'] ) ? $options['loh_probe_patterns'] : '';
-		if ( $this->matches_probe_patterns( $uri, $patterns ) ) {
+		// 2. Check if matching any selected active list or custom list patterns for this site
+		$blog_id = get_current_blog_id();
+		$active_sitewide = get_site_option( 'active_sitewide_plugins' );
+		$is_network_active = is_multisite() && isset( $active_sitewide[ defined( 'LOH_PLUGIN_BASENAME' ) ? LOH_PLUGIN_BASENAME : 'lots-of-honey/lots-of-honey.php' ] );
+		$active_lists = $is_network_active ? get_site_option( "loh_site_active_lists_{$blog_id}", array() ) : get_option( "loh_site_active_lists_{$blog_id}", array() );
+		if ( ! is_array( $active_lists ) ) {
+			$active_lists = array();
+		}
+
+		$all_bannable_terms = '';
+		$bannable_lists = isset( $options['loh_bannable_lists'] ) ? $options['loh_bannable_lists'] : array();
+		foreach ( $active_lists as $list_key ) {
+			if ( isset( $bannable_lists[ $list_key ]['terms'] ) ) {
+				$all_bannable_terms .= "\n" . $bannable_lists[ $list_key ]['terms'];
+			}
+		}
+
+		$custom_list = $is_network_active ? get_site_option( "loh_site_custom_list_{$blog_id}", '' ) : get_option( "loh_site_custom_list_{$blog_id}", '' );
+		if ( ! empty( $custom_list ) ) {
+			$all_bannable_terms .= "\n" . $custom_list;
+		}
+
+		if ( $this->matches_probe_patterns( $uri, $all_bannable_terms ) ) {
 			$this->add_ip_to_banlist( $ip );
 
 			// Log attempt and permanent ban
@@ -306,7 +326,7 @@ class LOH_Interceptor {
 			'loh_mode'           => 'tarpit',
 			'loh_tarpit_delay'   => 10,
 			'loh_ip_whitelist'   => '',
-			'loh_probe_patterns' => "wp-config.php\n.env\nxmlrpc.php\nphpmyadmin\nsetup.cgi\n.git\n/etc/passwd",
+			'loh_bannable_lists' => array(),
 		);
 
 		$options = array();

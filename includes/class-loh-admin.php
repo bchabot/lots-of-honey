@@ -282,14 +282,38 @@ class LOH_Admin {
 			$delay = isset( $_POST['loh_tarpit_delay'] ) ? absint( $_POST['loh_tarpit_delay'] ) : 10;
 			$whitelist = isset( $_POST['loh_ip_whitelist'] ) ? sanitize_textarea_field( wp_unslash( $_POST['loh_ip_whitelist'] ) ) : '';
 			$honeypot_sites = isset( $_POST['loh_honeypot_sites'] ) ? array_map( 'absint', $_POST['loh_honeypot_sites'] ) : array();
-			$probe_patterns = isset( $_POST['loh_probe_patterns'] ) ? sanitize_textarea_field( wp_unslash( $_POST['loh_probe_patterns'] ) ) : '';
 
 			update_site_option( 'loh_enabled', $enabled );
 			update_site_option( 'loh_mode', $mode );
 			update_site_option( 'loh_tarpit_delay', $delay );
 			update_site_option( 'loh_ip_whitelist', $whitelist );
 			update_site_option( 'loh_honeypot_sites', $honeypot_sites );
-			update_site_option( 'loh_probe_patterns', $probe_patterns );
+
+			// Save Master Bannable Lists (Dynamic N Lists support)
+			if ( isset( $_POST['loh_bannable_lists'] ) && is_array( $_POST['loh_bannable_lists'] ) ) {
+				$bannable_lists = get_site_option( 'loh_bannable_lists', array() );
+				foreach ( $_POST['loh_bannable_lists'] as $list_key => $list_data ) {
+					if ( isset( $bannable_lists[ $list_key ] ) ) {
+						$bannable_lists[ $list_key ]['name']  = sanitize_text_field( $list_data['name'] );
+						$bannable_lists[ $list_key ]['terms'] = sanitize_textarea_field( wp_unslash( $list_data['terms'] ) );
+					}
+				}
+				update_site_option( 'loh_bannable_lists', $bannable_lists );
+			}
+
+			// Save Per-Site Selections and Custom Lists
+			$sites = get_sites( array( 'number' => 500 ) );
+			foreach ( $sites as $site ) {
+				$blog_id = $site->blog_id;
+
+				// Save active lists selection
+				$site_active_lists = isset( $_POST['loh_site_active_lists'][ $blog_id ] ) ? array_map( 'sanitize_key', $_POST['loh_site_active_lists'][ $blog_id ] ) : array();
+				update_site_option( "loh_site_active_lists_{$blog_id}", $site_active_lists );
+
+				// Save site-specific custom list terms
+				$site_custom_list = isset( $_POST['loh_site_custom_list'][ $blog_id ] ) ? sanitize_textarea_field( wp_unslash( $_POST['loh_site_custom_list'][ $blog_id ] ) ) : '';
+				update_site_option( "loh_site_custom_list_{$blog_id}", $site_custom_list );
+			}
 
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Network settings saved.', 'lots-of-honey' ) . '</p></div>';
 		}
@@ -406,29 +430,42 @@ class LOH_Admin {
 			</div>
 
 			<div class="loh-card">
-				<h3><?php esc_html_e( 'Vulnerability Probe Patterns', 'lots-of-honey' ); ?></h3>
+				<h3><?php esc_html_e( 'Master Vulnerability Scan Lists', 'lots-of-honey' ); ?></h3>
+				<p class="description"><?php esc_html_e( 'Customize the master terms for each list below. If a list is active on a honeypot site, hitting any of these paths will permanently ban the IP.', 'lots-of-honey' ); ?></p>
+				
+				<?php
+				$bannable_lists = get_site_option( 'loh_bannable_lists', array() );
+				if ( ! is_array( $bannable_lists ) ) {
+					$bannable_lists = array();
+				}
+				?>
 				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><label for="loh_probe_patterns"><?php esc_html_e( 'Probe URL Patterns', 'lots-of-honey' ); ?></label></th>
-						<td>
-							<?php $probe_patterns = get_site_option( 'loh_probe_patterns', "wp-config.php\n.env\nxmlrpc.php\nphpmyadmin\nsetup.cgi\n.git\n/etc/passwd" ); ?>
-							<textarea name="loh_probe_patterns" id="loh_probe_patterns" rows="5" cols="50" class="large-text code"><?php echo esc_textarea( $probe_patterns ); ?></textarea>
-							<p class="description"><?php esc_html_e( 'Enter request path patterns or substrings to block and permanently ban network-wide (one per line). If anyone hits these paths on any honeypot site, they are added to the banlist.', 'lots-of-honey' ); ?></p>
-						</td>
-					</tr>
+					<?php foreach ( $bannable_lists as $list_key => $list_data ) : ?>
+						<tr>
+							<th scope="row">
+								<label for="list_<?php echo esc_attr( $list_key ); ?>"><strong><?php echo esc_html( $list_data['name'] ); ?></strong></label>
+								<input type="hidden" name="loh_bannable_lists[<?php echo esc_attr( $list_key ); ?>][name]" value="<?php echo esc_attr( $list_data['name'] ); ?>">
+							</th>
+							<td>
+								<textarea name="loh_bannable_lists[<?php echo esc_attr( $list_key ); ?>][terms]" id="list_<?php echo esc_attr( $list_key ); ?>" rows="5" cols="50" class="large-text code"><?php echo esc_textarea( $list_data['terms'] ); ?></textarea>
+							</td>
+						</tr>
+					<?php endforeach; ?>
 				</table>
 			</div>
 
 			<div class="loh-card">
 				<h3><?php esc_html_e( 'Designate Honeypot Sites', 'lots-of-honey' ); ?></h3>
-				<p class="description"><?php esc_html_e( 'Select the sites on the network that should act as honeypots. WARNING: Once designated, regular visitors to these sites will be blocked/redirected.', 'lots-of-honey' ); ?></p>
+				<p class="description"><?php esc_html_e( 'Select the sites on the network that should act as honeypots and select which scan lists are active on each site. WARNING: Once designated, regular visitors to these sites will be blocked/redirected.', 'lots-of-honey' ); ?></p>
 				<table class="wp-list-table widefat fixed striped" style="margin-top: 15px;">
 					<thead>
 						<tr>
 							<td class="manage-column column-cb check-column" style="width: 3em;"><input type="checkbox" id="loh-check-all-sites"></td>
-							<th scope="col" class="manage-column"><?php esc_html_e( 'Site Name', 'lots-of-honey' ); ?></th>
-							<th scope="col" class="manage-column"><?php esc_html_e( 'Site Domain & Path', 'lots-of-honey' ); ?></th>
-							<th scope="col" class="manage-column" style="width: 8em;"><?php esc_html_e( 'Site ID', 'lots-of-honey' ); ?></th>
+							<th scope="col" class="manage-column" style="width: 15%;"><?php esc_html_e( 'Site Name', 'lots-of-honey' ); ?></th>
+							<th scope="col" class="manage-column" style="width: 20%;"><?php esc_html_e( 'Site Domain & Path', 'lots-of-honey' ); ?></th>
+							<th scope="col" class="manage-column"><?php esc_html_e( 'Active Scan Lists', 'lots-of-honey' ); ?></th>
+							<th scope="col" class="manage-column" style="width: 25%;"><?php esc_html_e( 'Custom Site-Specific Terms', 'lots-of-honey' ); ?></th>
+							<th scope="col" class="manage-column" style="width: 6em;"><?php esc_html_e( 'Site ID', 'lots-of-honey' ); ?></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -437,6 +474,16 @@ class LOH_Admin {
 								<?php
 								$details = get_blog_details( $site->blog_id );
 								$is_main = is_main_site( $site->blog_id );
+								$blog_id = $site->blog_id;
+
+								// Get active lists for this blog
+								$site_active_lists = get_site_option( "loh_site_active_lists_{$blog_id}", array() );
+								if ( ! is_array( $site_active_lists ) ) {
+									$site_active_lists = array();
+								}
+
+								// Get custom site list
+								$site_custom_list = get_site_option( "loh_site_custom_list_{$blog_id}", '' );
 								?>
 								<tr>
 									<th scope="row" class="check-column">
@@ -445,18 +492,39 @@ class LOH_Admin {
 									<td>
 										<strong><?php echo esc_html( $details->blogname ); ?></strong>
 										<?php if ( $is_main ) : ?>
-											<span class="loh-badge-warning" style="margin-left:5px; font-size:10px;"><?php esc_html_e( 'Main Site (Cannot be honeypot)', 'lots-of-honey' ); ?></span>
+											<span class="loh-badge-warning" style="margin-top:5px; font-size:10px; display:block; text-align:center;"><?php esc_html_e( 'Main Site (Cannot be honeypot)', 'lots-of-honey' ); ?></span>
 										<?php endif; ?>
 									</td>
 									<td>
 										<a href="<?php echo esc_url( $details->siteurl ); ?>" target="_blank"><?php echo esc_html( $details->domain . $details->path ); ?></a>
+									</td>
+									<td>
+										<?php if ( ! $is_main ) : ?>
+											<div style="display: flex; flex-direction: column; gap: 5px;">
+												<?php foreach ( $bannable_lists as $list_key => $list_data ) : ?>
+													<label style="font-size: 12px; font-weight: normal; margin: 0;">
+														<input type="checkbox" name="loh_site_active_lists[<?php echo esc_attr( $blog_id ); ?>][]" value="<?php echo esc_attr( $list_key ); ?>" <?php checked( in_array( $list_key, $site_active_lists, true ), true ); ?>>
+														<?php echo esc_html( $list_data['name'] ); ?>
+													</label>
+												<?php endforeach; ?>
+											</div>
+										<?php else : ?>
+											<span class="description">&mdash;</span>
+										<?php endif; ?>
+									</td>
+									<td>
+										<?php if ( ! $is_main ) : ?>
+											<textarea name="loh_site_custom_list[<?php echo esc_attr( $blog_id ); ?>]" rows="2" style="width: 100%; font-family: monospace; font-size: 11px; margin: 0;" placeholder="one-path-per-line.php"><?php echo esc_textarea( $site_custom_list ); ?></textarea>
+										<?php else : ?>
+											<span class="description">&mdash;</span>
+										<?php endif; ?>
 									</td>
 									<td><code><?php echo esc_html( $site->blog_id ); ?></code></td>
 								</tr>
 							<?php endforeach; ?>
 						<?php else : ?>
 							<tr>
-								<td colspan="4"><?php esc_html_e( 'No network sites found.', 'lots-of-honey' ); ?></td>
+								<td colspan="6"><?php esc_html_e( 'No network sites found.', 'lots-of-honey' ); ?></td>
 							</tr>
 						<?php endif; ?>
 					</tbody>
