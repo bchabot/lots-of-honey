@@ -67,9 +67,12 @@ class Lots_Of_Honey {
 	 * Register core hooks
 	 */
 	private function init_hooks() {
-		// Run interceptor as early as possible
-		add_action( 'muplugins_loaded', array( $this, 'run_interceptor' ), 1 );
-		add_action( 'plugins_loaded', array( $this, 'run_interceptor' ), 1 );
+		// Run early banned IP block check as early as possible
+		add_action( 'muplugins_loaded', array( $this, 'run_early_block' ), 1 );
+		add_action( 'plugins_loaded', array( $this, 'run_early_block' ), 1 );
+
+		// Run honeypot interceptor on init where user session & pluggables are loaded
+		add_action( 'init', array( $this, 'run_interceptor' ), 1 );
 
 		// Load localization
 		add_action( 'init', array( $this, 'load_textdomain' ), 11 );
@@ -78,6 +81,20 @@ class Lots_Of_Honey {
 		if ( is_admin() ) {
 			LOH_Admin::get_instance();
 		}
+	}
+
+	/**
+	 * Run early banned IP blocking check
+	 */
+	public function run_early_block() {
+		static $early_block_run = false;
+		if ( $early_block_run ) {
+			return;
+		}
+		$early_block_run = true;
+
+		$interceptor = LOH_Interceptor::get_instance();
+		$interceptor->maybe_block_banned_ip();
 	}
 
 	/**
@@ -92,7 +109,6 @@ class Lots_Of_Honey {
 		$interceptor_run = true;
 
 		$interceptor = LOH_Interceptor::get_instance();
-		$interceptor->maybe_block_banned_ip();
 		$interceptor->maybe_intercept();
 	}
 
